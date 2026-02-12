@@ -1,5 +1,9 @@
 import numpy as np
 
+def simulate_force():
+    pass
+
+
 def simulate_motor_output(T=5000, N=16, d=3, noise=0.05, seed=0):
     """
     Returns X with shape (T, N) and intrinsic (noise-free) dimensionality d.
