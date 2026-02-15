@@ -5,6 +5,7 @@ from decoders import vel_decoder_on_manifold
 def train_controller(A: np.ndarray,
                      B: np.ndarray,
                      W: np.ndarray,
+                     sigma_u: float=.001,
                      n_trials: int=100,
                      eta: float=.001,
                      radius: float=1.,
@@ -16,8 +17,8 @@ def train_controller(A: np.ndarray,
     rng = np.random.default_rng(seed)
 
     N, K = A.shape
-    W_pol = rng.standard_normal((K, 2))  # * 1e-2
-    M = dt * (W @ B.T @ A)
+    W_pol = np.zeros((K, 2))  # * 1e-2
+    J = W @ B.T @ A #* dt
     nsteps = np.zeros(n_trials, dtype=int)
     loss = np.zeros(n_trials, dtype=float)
     for tr in range(n_trials):
@@ -30,10 +31,10 @@ def train_controller(A: np.ndarray,
             vel = vel_decoder_on_manifold(f, B, W)
             pos = pos + dt * vel
             e = pos_star - pos
-            u = W_pol @ e
-            g = M.T @ e
-            w_t = 1 / (t + 1)
-            W_pol += (w_t * eta) * np.outer(g, e)
+            u = W_pol @ e + sigma_u * rng.standard_normal(K)
+            g = J.T @ e
+            #w_t = 1 / (t + 1)
+            W_pol += eta * np.outer(g, e)
             current_loss = np.sqrt(e[0] ** 2 + e[1] ** 2)
             print(f'doing trial {tr + 1} of {n_trials}, loss = {current_loss}')
 
@@ -45,7 +46,7 @@ def train_controller(A: np.ndarray,
 
     return W_pol, nsteps, loss
 
-def simulate_trial(A, B, W, W_pol, radius=1., maxT=1000, dt=.01, tol=.05, seed=0):
+def simulate_trial(A, B, W, W_pol, sigma_u = .001, radius=1., maxT=1000, dt=.01, tol=.05, seed=0):
     rng = np.random.default_rng(seed)
     N, K = A.shape
     ang = rng.uniform(0, 2 * np.pi)
@@ -59,7 +60,7 @@ def simulate_trial(A, B, W, W_pol, radius=1., maxT=1000, dt=.01, tol=.05, seed=0
         pos = pos + dt * vel
         traj[t] = pos
         e = pos_star - pos
-        u = W_pol @ e
+        u = W_pol @ e + sigma_u * rng.standard_normal(K)
         loss = np.sqrt(e[0] ** 2 + e[1] ** 2)
 
         if loss < tol * radius:
