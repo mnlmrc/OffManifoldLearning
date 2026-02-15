@@ -7,12 +7,12 @@ def make_basis_vectors(
         Nd: int=3,
         d: int=5,
         w_f: float=0.9,
-        w_d: float=0.3,
+        w_d: float=0.1,
         w_b: float=0.1,
-        seed: int=0
+        #seed: int=0
     ):
 
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng()
     N = Nf * Nd  # N channels
 
     single_finger = np.eye(N)  # first we have single finger "synergies"
@@ -42,14 +42,13 @@ def make_finger_force(A: np.ndarray,
                       T: int=100,
                       Nf: int=5,
                       Nd: int=3,
-                      noise: float=0.1,
-                      seed: int=0):
+                      noise: float=0.1):
 
     assert A.shape[-1] == B.shape[-1], "Last dimension of A and B must be the same (i.e., number of basis vectors)"
     assert (B.shape[0] == Nf) & (B.shape[1] == Nd), "B must be (Nf, Nd, n_basis_vectors)"
     assert C.shape == (Nf, Nf), "C must be Nf-by-Nf"
 
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng()
     N = Nf * Nd
 
     # Create a force profile
@@ -104,11 +103,11 @@ if __name__ == '__main__':
             print(f'doing dataset {ds},{n}/{N}')
             if ds == 'intact':
                 w_f = rng.uniform(.8, 1.)
-                w_b = rng.uniform(.1, .3)
+                w_b = rng.uniform(.05, .35)
             elif ds == 'stroke':
-                w_f = rng.uniform(.1, .3)
-                w_b = rng.uniform(.5, .8)
-            A, B, C = make_basis_vectors(Nf=5, Nd=3, d=5, w_f=w_f, w_d=w_b)
+                w_f = rng.uniform(.0, .3)
+                w_b = rng.uniform(.6, .9)
+            A, B, C = make_basis_vectors(Nf=5, Nd=3, d=5, w_f=w_f, w_b=w_b)
             F, finger, direction = make_finger_force(A, B, C)
             tinfo['finger'].extend(finger)
             tinfo['dirX'].extend(direction[:, 0])

@@ -3,7 +3,7 @@ import numpy as np
 # ----------------------------
 # 1) On-manifold position decoder
 # ----------------------------
-def pos_decoder_on_manifold(f_t,
+def pos_decoder(f_t,
                            B,
                            W,
                            mu: np.ndarray=None,
@@ -20,12 +20,12 @@ def pos_decoder_on_manifold(f_t,
     return pos
 
 
-def vel_decoder_on_manifold(f_t,
-                            B,
-                            W,
-                            mu: np.ndarray = None,
-                            vel_gain: float = 1.0,
-                            vel_clip: float = None):
+def vel_decoder(f_t,
+                B,
+                W,
+                mu: np.ndarray = None,
+                vel_gain: float = 1.0,
+                vel_clip: float = None):
     if mu is None:
         mu = np.zeros_like(f_t)
 
