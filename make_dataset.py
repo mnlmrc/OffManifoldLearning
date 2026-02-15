@@ -38,7 +38,7 @@ def make_basis_vectors(
 def make_finger_force(A: np.ndarray,
                       B: np.ndarray,
                       C: np.ndarray,
-                      n_trials: int=100,
+                      n_trials: int=120,
                       T: int=100,
                       Nf: int=5,
                       Nd: int=3,
@@ -56,17 +56,25 @@ def make_finger_force(A: np.ndarray,
     t = np.linspace(0, 1, T)
     profile = np.sin(np.pi * t) ** 2
 
+    # Make trials
+    conds = np.array([(f, d, s) for f in range(Nf) for d in range(Nd) for s in (-1, 1)])
+    n_rep = int(np.ceil(n_trials / len(conds)))
+    conds = np.tile(conds, (n_rep, 1))
+
     F = np.zeros((n_trials, T, N), dtype=float)
     finger = np.zeros(n_trials, dtype=int)
     direction = np.zeros((n_trials, 3), dtype=float)
     for tr in range(n_trials):
-        f = rng.integers(0, Nf)  # which finger is instructed
 
-        v = np.zeros(Nd, dtype=float)  # which direction
-        direct = rng.integers(0, Nd)
-        sign = rng.choice([-1, 1])
+        f, direct, sign = conds[tr]
+
+        finger[tr] = f
+
+        v = np.zeros(Nd, dtype=float)
         v[direct] = float(sign)
         v_norm = v / (np.linalg.norm(v) + 1e-12)
+
+        direction[tr] = v_norm
 
         amp = 1 + .2 * rng.standard_normal()  # movement amplitude
 
@@ -80,8 +88,6 @@ def make_finger_force(A: np.ndarray,
         Ft_ens = Ft @ C.T
 
         F[tr] = Ft_ens.reshape(-1, N)  # store trials & info
-        finger[tr] = f
-        direction[tr] = v
 
     return F, finger, direction
 
@@ -92,7 +98,7 @@ if __name__ == '__main__':
     tinfo = {'finger': [], 'dirX': [], 'dirY': [], 'dirZ': [], 'group': [], 'w_f': [], 'w_b': [], 'subj_id': []}
     save_dir = 'data/'
     os.makedirs(save_dir, exist_ok=True)
-    N = 100
+    N = 40
     for ds in dataset:
         for n in range(N):
             print(f'doing dataset {ds},{n}/{N}')
@@ -102,7 +108,7 @@ if __name__ == '__main__':
             elif ds == 'stroke':
                 w_f = rng.uniform(.1, .3)
                 w_b = rng.uniform(.5, .8)
-            A, B, C = make_basis_vectors(Nf=5, Nd=3, d=3, w_f=w_f, w_d=w_b)
+            A, B, C = make_basis_vectors(Nf=5, Nd=3, d=5, w_f=w_f, w_d=w_b)
             F, finger, direction = make_finger_force(A, B, C)
             tinfo['finger'].extend(finger)
             tinfo['dirX'].extend(direction[:, 0])
@@ -112,7 +118,9 @@ if __name__ == '__main__':
             tinfo['w_b'].extend([w_b] * finger.size)
             tinfo['subj_id'].extend([n+100] * finger.size)
             tinfo['group'].extend([ds] * finger.size)
-            np.save(f'{save_dir}/basis_vectors/basis_vectors.{n + 100}.npy', A)
-            np.save(f'{save_dir}/pretraining/single_finger.pretraining.{n + 100}.npy', A)
+            np.save(f'{save_dir}/basis_vectors/basis_vectors.{ds}.{n + 100}.npy', A)
+            np.save(f'{save_dir}/pretraining/single_finger.pretraining.{ds}.{n + 100}.npy', F)
     tinfo = pd.DataFrame(tinfo)
+    cond_vec = tinfo['dirX'].astype(str) + ',' + tinfo['dirY'].astype(str) + ',' + tinfo['dirZ'].astype(str)
+    tinfo['cond_vec'] = cond_vec
     pd.DataFrame(tinfo).to_csv(f'{save_dir}/pretraining/tinfo.tsv', sep='\t',index=False)
