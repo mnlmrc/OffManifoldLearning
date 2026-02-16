@@ -121,37 +121,36 @@ def train_controller(A0: np.ndarray,
     return W_pol, success, nsteps, loss, meanDev, velMax, A
 
 
-def simulate_trial(A, B, W, W_pol, sigma_u = .001, radius=1., maxT=1000, dt=.01, tol=.05):
+def simulate_trial(A, B, W_dec, W_pol, sigma_u = .1, ang=0, radius=1., maxT=1000, dt=.01, tol=.001):
     rng = np.random.default_rng()
-    N, K = A.shape
-    ang = rng.uniform(0, 2 * np.pi)
     pos_star = radius * np.array([np.cos(ang), np.sin(ang)])
+    K = A.shape[1]
     u = np.zeros((K,), dtype=float)
     pos = np.zeros((2,), dtype=float)
-    traj = np.full((maxT, 2), np.nan)
+    P = W_dec @ B.T
+    traj = np.zeros((maxT, 2), dtype=float)
     for t in range(maxT):
         f = A @ u  # (N,)
-        vel = vel_decoder(f, B, W)
+        vel = P @ f
         pos = pos + dt * vel
         traj[t] = pos
         e = pos_star - pos
         u = W_pol @ e + sigma_u * rng.standard_normal(K)
-        loss = np.sqrt(e[0] ** 2 + e[1] ** 2)
-
-        if loss < tol * radius:
+        current_loss = np.sqrt(e[0] ** 2 + e[1] ** 2)
+        if current_loss < tol * radius:
             break
 
-    return pos_star, traj, u
+    return traj, u
 
 
 if __name__ == '__main__':
-    # parse sim_rehab from terminal, if True basis vectors in A can be rescaled in training
     parser = argparse.ArgumentParser()
-    parser.add_argument('--sim_rehab', default=False)
+    parser.add_argument('--sim_rehab', action='store_true')
     args = parser.parse_args()
+
     sim_rehab = args.sim_rehab
 
-    save_dir = 'data/post_rehab' if sim_rehab else 'data/controller_training'
+    save_dir = 'data/post_rehab' if sim_rehab is True else 'data/controller_training'
     os.makedirs(save_dir, exist_ok=True)
 
     # init rng
