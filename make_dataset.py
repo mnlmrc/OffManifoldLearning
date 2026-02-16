@@ -34,6 +34,22 @@ def make_basis_vectors(
 
     return A, B, C
 
+def make_recruitment(Nf, Nd, d):
+    rng = np.random.default_rng()
+    N = Nf * Nd  # N channels
+
+    I = np.eye(N)  # recruitment of basis vectors in each condition
+    B_f = I.reshape(Nf, Nd, N)
+    B_p = rng.standard_normal((Nf, Nd, d))
+    B_b = np.ones((Nf, Nd))
+    B = np.c_[B_f, B_p, B_b[:, :, None]]
+
+    return B
+
+
+def make_enslavement(Nf, Nd, d):
+    rng = np.random.default_rng()
+
 
 def make_finger_force(A: np.ndarray,
                       B: np.ndarray,
@@ -102,7 +118,7 @@ if __name__ == '__main__':
         for n in range(N):
             print(f'doing dataset {ds},{n}/{N}')
             if ds == 'intact':
-                w_f = rng.uniform(.8, 1.)
+                w_f = rng.uniform(.6, 1.)
                 w_b = rng.uniform(.05, .35)
             elif ds == 'stroke':
                 w_f = rng.uniform(.0, .3)
@@ -118,8 +134,10 @@ if __name__ == '__main__':
             tinfo['subj_id'].extend([n+100] * finger.size)
             tinfo['group'].extend([ds] * finger.size)
             np.save(f'{save_dir}/basis_vectors/basis_vectors.{ds}.{n + 100}.npy', A)
-            np.save(f'{save_dir}/pretraining/single_finger.pretraining.{ds}.{n + 100}.npy', F)
+            np.save(f'{save_dir}/baseline/single_finger.pretraining.{ds}.{n + 100}.npy', F)
     tinfo = pd.DataFrame(tinfo)
-    cond_vec = tinfo['dirX'].astype(str) + ',' + tinfo['dirY'].astype(str) + ',' + tinfo['dirZ'].astype(str)
+    cond_vec = (np.char.mod('%d', tinfo['dirX'].to_numpy()) + ',' +
+                np.char.mod('%d', tinfo['dirY'].to_numpy()) + ',' +
+                np.char.mod('%d', tinfo['dirZ'].to_numpy()))
     tinfo['cond_vec'] = cond_vec
-    pd.DataFrame(tinfo).to_csv(f'{save_dir}/pretraining/tinfo.tsv', sep='\t',index=False)
+    pd.DataFrame(tinfo).to_csv(f'{save_dir}/baseline/tinfo.tsv', sep='\t',index=False)

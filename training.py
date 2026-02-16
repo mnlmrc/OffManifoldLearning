@@ -2,7 +2,7 @@ import numpy as np
 from decoders import vel_decoder
 import pandas as pd
 import os
-
+import argparse
 
 def calc_manifold(F: np.ndarray,
                   d: int):
@@ -14,17 +14,30 @@ def calc_manifold(F: np.ndarray,
     return B, B_orth
 
 
-def train_controller(A: np.ndarray,
+def reshape_off_manifold(B_on, B_off, d, angle=.9):
+    rng = np.random.default_rng()
+    T = rng.standard_normal((B_off.shape[1], d))  # (q-d, d)
+    T /= np.linalg.norm(T, axis=0, keepdims=True) + 1e-12
+    B_mix = B_on + angle * (B_off @ T)  # (q, d)
+    B_om, _ = np.linalg.qr(B_mix)
+    B_reshaped = B_om[:, :d]
+    return B_reshaped
+
+
+def train_controller(A0: np.ndarray,
                      B: np.ndarray,
                      W: np.ndarray,
                      sigma_u: float=.1,
+                     eta_w: float=1e-3,
+                     eta_a: float=1e-6,
+                     lam_a=1e-2,
                      n_trials: int=1000,
-                     eta: float=.001,
                      ang: float | list | np.ndarray=None,
                      radius: float=1.,
                      maxT: int=1000,
                      dt: float=.01,
                      tol: float=.001,
+                     sim_rehab: bool=False
                      #seed: int=0
                      ):
 
@@ -33,30 +46,55 @@ def train_controller(A: np.ndarray,
     if ang is None:
         ang = rng.uniform(0, 2 * np.pi, size=n_trials)
 
-    N, K = A.shape
-    W_pol = np.zeros((K, 2))  # * 1e-2
-    J = W @ B.T @ A #* dt
+    N, K = A0.shape
+
+    #J = W @ B.T @ A0
+    # force -> velocity mapping
+    P = W @ B.T
+
+    # plant scaling
+    s = np.ones(K)
+
+    # init policy
+    W_pol = np.zeros((K, 2))
+
+    # init learning metrics
     success = np.zeros((n_trials,), dtype=bool)
     nsteps = np.zeros(n_trials, dtype=int)
     loss = np.zeros(n_trials, dtype=float)
     meanDev = np.zeros_like(loss)
     velMax = np.zeros_like(loss)
+
+    # loop over trials
     for tr in range(n_trials):
         pos_star = radius * np.array([np.cos(ang[tr]), np.sin(ang[tr])])
         u = np.zeros((K,), dtype=float)
-        pos0 = np.zeros((2,), dtype=float)
-        pos = pos0.copy()
+        pos = np.zeros((2,), dtype=float)
         current_loss, t, velMax[tr], dev = np.inf, 0, 0, 0
         for t in range(maxT):
+            # update A
+            A = A0 * s[None, :]
+
+            # map u -> force
             f = A @ u  # (N,)
-            vel = vel_decoder(f, B, W)
+
+            # decode velocity and update position
+            vel = P @ f
             pos = pos + dt * vel
 
+            # calculate error
             e = pos_star - pos
 
             u = W_pol @ e + sigma_u * rng.standard_normal(K)
-            g = J.T @ e
-            W_pol += eta * np.outer(g, e)
+            J_u = P @ A
+            g_u = J_u.T @ e
+            W_pol += eta_w * np.outer(g_u, e)
+
+            if sim_rehab:
+                J_s = (P @ A0) * u[None, :]  # (2, K)
+                g_s = -J_s.T @ e  # (K,)  gradient that reduces error
+
+                s -= eta_a * (g_s + lam_a * (s - 1.0))
 
             current_loss = np.sqrt(e[0] ** 2 + e[1] ** 2)
 
@@ -80,7 +118,7 @@ def train_controller(A: np.ndarray,
         loss[tr] = current_loss
         meanDev[tr] = dev / steps
 
-    return W_pol, success, nsteps, loss, meanDev, velMax
+    return W_pol, success, nsteps, loss, meanDev, velMax, A
 
 
 def simulate_trial(A, B, W, W_pol, sigma_u = .001, radius=1., maxT=1000, dt=.01, tol=.05):
@@ -107,37 +145,60 @@ def simulate_trial(A, B, W, W_pol, sigma_u = .001, radius=1., maxT=1000, dt=.01,
 
 
 if __name__ == '__main__':
+    # parse sim_rehab from terminal, if True basis vectors in A can be rescaled in training
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--sim_rehab', default=False)
+    args = parser.parse_args()
+    sim_rehab = args.sim_rehab
+
+    save_dir = 'data/post_rehab' if sim_rehab else 'data/controller_training'
+    os.makedirs(save_dir, exist_ok=True)
+
+    # init rng
     rng = np.random.default_rng(0)
-    save_dir = 'data/training'
+
+    # design trials
     n_trials = 1200
     ang = rng.choice([0, .25, .5, .75, 1, 1.25, 1.5, 1.75], size=n_trials) * np.pi
-    os.makedirs(save_dir, exist_ok=True)
-    tinfo = pd.read_csv('data/pretraining/tinfo.tsv', sep='\t')
-    N = len(tinfo.subj_id.unique())
-    d = 5
+
+    # dataset has 40 patients/group
+    N = 40
     dataset = ['stroke', 'intact']
     mapping = ['on', 'off']
+
+    # dimensionality of intrinsic manifold
+    d = 5
+
+    # loop thorugh participants
     for ds in dataset:
         for sn in range(N):
-            F = np.load(f'data/pretraining/single_finger.pretraining.{ds}.{sn+100}.npy')
-            A = np.load(f'data/basis_vectors/basis_vectors.{ds}.{sn+100}.npy')
-            Nc = A.shape[0]
+            # load single finger force, basis vectors and calculate intrisic manifold
+            F = np.load(f'data/baseline/single_finger.pretraining.{ds}.{sn+100}.npy')
+            A0 = np.load(f'data/basis_vectors/basis_vectors.{ds}.{sn+100}.npy')
+            Nc = A0.shape[0]
             F_c = F.reshape(-1, Nc)
             B_on, B_off = calc_manifold(F_c, d)
-            Q, _ = np.linalg.qr(rng.standard_normal((d, d)))
-            W = Q[:2]  # define decoder mapping
-            np.save(f'data/pretraining/W_dec.{ds}.{sn + 100}.npy', W)
+
+            # if simulating rehabilitation, W_dec should be already saved from the training expeirment
+            if sim_rehab:
+                W = np.load(f'data/controller_training/W_dec.{ds}.{sn + 100}.npy')
+            else:
+                Q, _ = np.linalg.qr(rng.standard_normal((d, d)))
+                W = Q[:2]  # define decoder mapping
+                np.save(f'{save_dir}/W_dec.{ds}.{sn + 100}.npy', W)
+
+            # try both mappings
             for map in mapping:
                 if map == 'on':
                     B = B_on.copy()
                 elif map == 'off':
-                    T = rng.standard_normal((B_off.shape[1], d))  # (q-d, d)
-                    T /= np.linalg.norm(T, axis=0, keepdims=True) + 1e-12
-                    B_mix = B_on + .9 * (B_off @ T)  # (q, d)
-                    B_om, _ = np.linalg.qr(B_mix)
-                    B = B_om[:, :d]
-                W_pol, success, nsteps, loss, meanDev, velMax = train_controller(A, B, W, ang=ang, n_trials=n_trials)
-                np.save(f'data/training/W_pol.{map}-manifold.{ds}.{sn+100}.npy', W_pol)
+                    B = reshape_off_manifold(B_on, B_off, d, angle=2)
+
+                W_pol, success, nsteps, loss, meanDev, velMax, A = train_controller(A0, B, W, ang=ang, n_trials=n_trials,
+                                                                                    sim_rehab=sim_rehab, eta_a=1e-5)
+                np.save(f'{save_dir}/W_pol.{map}-manifold.{ds}.{sn + 100}.npy', W_pol)
+                if sim_rehab:
+                    np.save(f'{save_dir}/basis_vectors.{map}-manifold.{ds}.{sn + 100}.npy', A)
 
                 df = pd.DataFrame(columns=['subj_id', 'group', 'mapping', 'success', 'nsteps', 'loss', 'meanDev',
                                            'velMax'])
@@ -150,5 +211,6 @@ if __name__ == '__main__':
                 df['group'] = ds
                 df['mapping'] = map
                 df['TN'] = np.linspace(1, n_trials, n_trials)
-                df.to_csv(f'data/training/log_training.{map}-manifold.{ds}.{sn+100}.tsv', sep='\t',
+                df.to_csv(f'{save_dir}/log_training.{map}-manifold.{ds}.{sn + 100}.tsv', sep='\t',
                           index=False)
+
