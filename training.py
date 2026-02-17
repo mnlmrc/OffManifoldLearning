@@ -196,6 +196,7 @@ if __name__ == '__main__':
                 W_pol, success, nsteps, loss, meanDev, velMax, A = train_controller(A0, B, W, ang=ang, n_trials=n_trials,
                                                                                     sim_rehab=sim_rehab, eta_a=1e-5)
                 np.save(f'{save_dir}/W_pol.{map}-manifold.{ds}.{sn + 100}.npy', W_pol)
+                np.save(f'{save_dir}/B.{map}-manifold.{ds}.{sn + 100}.npy', B)
                 if sim_rehab:
                     np.save(f'{save_dir}/basis_vectors.{map}-manifold.{ds}.{sn + 100}.npy', A)
 

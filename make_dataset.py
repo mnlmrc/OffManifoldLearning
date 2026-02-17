@@ -1,3 +1,5 @@
+import argparse
+
 import numpy as np
 import pandas as pd
 import os
@@ -22,17 +24,7 @@ def make_basis_vectors(
     flexBias[flexCh] = 1
     A = np.c_[w_f * single_finger, w_d * add_patterns, w_b * flexBias]  # basis vectors for health participants
 
-    I = np.eye(N)  # recruitment of basis vectors in each condition
-    B_f = I.reshape(Nf, Nd, N)
-    B_p = rng.standard_normal((Nf, Nd, d))
-    B_b = np.ones((Nf, Nd))
-    B = np.c_[B_f, B_p, B_b[:, :, None]]
-
-    enslavement = np.array([.1, .1, .1, .4, .4])  # set enslavement
-    cov = np.outer(enslavement, enslavement)
-    C = np.eye(Nf) + cov
-
-    return A, B, C
+    return A
 
 def make_recruitment(Nf, Nd, d):
     rng = np.random.default_rng()
@@ -47,8 +39,11 @@ def make_recruitment(Nf, Nd, d):
     return B
 
 
-def make_enslavement(Nf, Nd, d):
-    rng = np.random.default_rng()
+def make_enslavement(enslavement):
+    Nf = len(enslavement)
+    cov = np.outer(enslavement, enslavement)
+    C = np.eye(Nf) + cov
+    return C
 
 
 def make_finger_force(A: np.ndarray,
@@ -108,36 +103,67 @@ def make_finger_force(A: np.ndarray,
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--post_rehab', action='store_true')
+    args = parser.parse_args()
+
+    post_rehab = args.post_rehab
+
     rng = np.random.default_rng(seed=0)
     dataset = ['stroke', 'intact']
-    tinfo = {'finger': [], 'dirX': [], 'dirY': [], 'dirZ': [], 'group': [], 'w_f': [], 'w_b': [], 'subj_id': []}
+    tinfo = {'finger': [], 'dirX': [], 'dirY': [], 'dirZ': [], 'group': [], 'w_f': [], 'w_b': [], 'subj_id': [],
+             'mapping': [] if post_rehab else None
+             }
     save_dir = 'data/'
     os.makedirs(save_dir, exist_ok=True)
     N = 40
+    enslavement = np.array([.1, .1, .1, .4, .4])
     for ds in dataset:
-        for n in range(N):
-            print(f'doing dataset {ds},{n}/{N}')
-            if ds == 'intact':
-                w_f = rng.uniform(.6, 1.)
-                w_b = rng.uniform(.05, .35)
-            elif ds == 'stroke':
-                w_f = rng.uniform(.0, .3)
-                w_b = rng.uniform(.6, .9)
-            A, B, C = make_basis_vectors(Nf=5, Nd=3, d=5, w_f=w_f, w_b=w_b)
-            F, finger, direction = make_finger_force(A, B, C)
+        for sn in range(N):
+            print(f'doing dataset {ds},{sn + 1}/{N}')
+            B = make_recruitment(Nf=5, Nd=3, d=5)
+            C = make_enslavement(enslavement)
+            if post_rehab:
+                A_on = np.load(f'../data/post_rehab/basis_vectors.on-manifold.{ds}.{sn + 100}.npy')
+                A_off = np.load(f'../data/post_rehab/basis_vectors.off-manifold.{ds}.{sn + 100}.npy')
+                F_on, finger_on, direction_on = make_finger_force(A_on, B, C)
+                F_off, finger_off, direction_off = make_finger_force(A_off, B, C)
+                F = np.vstack((F_on, F_off))
+                finger = np.vstack((finger_on, finger_off))
+                direction = np.vstack((direction_on, direction_off))
+                np.save(f'{save_dir}/single_finger.post_rehab.on-manifold.{ds}.{sn + 100}.npy', F_on)
+                np.save(f'{save_dir}/single_finger.post_rehab.off-manifold.{ds}.{sn + 100}.npy', F_off)
+                w_b, w_f = None, None
+            else:
+                if ds == 'intact':
+                    w_f = rng.uniform(.6, 1.)
+                    w_b = rng.uniform(.05, .35)
+                elif ds == 'stroke':
+                    w_f = rng.uniform(.0, .3)
+                    w_b = rng.uniform(.6, .9)
+                else:
+                    w_b, w_f = None, None
+                A = make_basis_vectors(Nf=5, Nd=3, d=5, w_f=w_f, w_b=w_b)
+                F, finger, direction = make_finger_force(A, B, C)
+                np.save(f'{save_dir}/basis_vectors/basis_vectors.{ds}.{sn + 100}.npy', A)
+                np.save(f'{save_dir}/baseline/single_finger.pretraining.{ds}.{sn + 100}.npy', F)
             tinfo['finger'].extend(finger)
             tinfo['dirX'].extend(direction[:, 0])
             tinfo['dirY'].extend(direction[:, 1])
             tinfo['dirZ'].extend(direction[:, 2])
             tinfo['w_f'].extend([w_f] * finger.size)
             tinfo['w_b'].extend([w_b] * finger.size)
-            tinfo['subj_id'].extend([n+100] * finger.size)
+            tinfo['subj_id'].extend([sn+100] * finger.size)
             tinfo['group'].extend([ds] * finger.size)
-            np.save(f'{save_dir}/basis_vectors/basis_vectors.{ds}.{n + 100}.npy', A)
-            np.save(f'{save_dir}/baseline/single_finger.pretraining.{ds}.{n + 100}.npy', F)
+            if post_rehab:
+                tinfo['mapping'].extend(['on'] * F_on.size)
+                tinfo['mapping'].extend(['off'] * F_off.size)
     tinfo = pd.DataFrame(tinfo)
     cond_vec = (np.char.mod('%d', tinfo['dirX'].to_numpy()) + ',' +
                 np.char.mod('%d', tinfo['dirY'].to_numpy()) + ',' +
                 np.char.mod('%d', tinfo['dirZ'].to_numpy()))
     tinfo['cond_vec'] = cond_vec
-    pd.DataFrame(tinfo).to_csv(f'{save_dir}/baseline/tinfo.tsv', sep='\t',index=False)
+    if post_rehab:
+        pd.DataFrame(tinfo).to_csv(f'{save_dir}/post_rehab/tinfo.tsv', sep='\t', index=False)
+    else:
+        pd.DataFrame(tinfo).to_csv(f'{save_dir}/baseline/tinfo.tsv', sep='\t',index=False)
