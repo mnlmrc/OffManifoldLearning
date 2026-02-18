@@ -124,12 +124,12 @@ if __name__ == '__main__':
             B = make_recruitment(Nf=5, Nd=3, d=5)
             C = make_enslavement(enslavement)
             if post_rehab:
-                A_on = np.load(f'../data/post_rehab/basis_vectors.on-manifold.{ds}.{sn + 100}.npy')
-                A_off = np.load(f'../data/post_rehab/basis_vectors.off-manifold.{ds}.{sn + 100}.npy')
+                A_on = np.load(f'data/post_rehab/basis_vectors.on-manifold.{ds}.{sn + 100}.npy')
+                A_off = np.load(f'data/post_rehab/basis_vectors.off-manifold.{ds}.{sn + 100}.npy')
                 F_on, finger_on, direction_on = make_finger_force(A_on, B, C)
                 F_off, finger_off, direction_off = make_finger_force(A_off, B, C)
                 F = np.vstack((F_on, F_off))
-                finger = np.vstack((finger_on, finger_off))
+                finger = np.hstack((finger_on, finger_off))
                 direction = np.vstack((direction_on, direction_off))
                 np.save(f'{save_dir}/single_finger.post_rehab.on-manifold.{ds}.{sn + 100}.npy', F_on)
                 np.save(f'{save_dir}/single_finger.post_rehab.off-manifold.{ds}.{sn + 100}.npy', F_off)
@@ -156,8 +156,8 @@ if __name__ == '__main__':
             tinfo['subj_id'].extend([sn+100] * finger.size)
             tinfo['group'].extend([ds] * finger.size)
             if post_rehab:
-                tinfo['mapping'].extend(['on'] * F_on.size)
-                tinfo['mapping'].extend(['off'] * F_off.size)
+                tinfo['mapping'].extend(['on'] * (finger.size // 2))
+                tinfo['mapping'].extend(['off'] * (finger.size // 2))
     tinfo = pd.DataFrame(tinfo)
     cond_vec = (np.char.mod('%d', tinfo['dirX'].to_numpy()) + ',' +
                 np.char.mod('%d', tinfo['dirY'].to_numpy()) + ',' +

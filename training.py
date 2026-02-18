@@ -87,13 +87,14 @@ def train_controller(A0: np.ndarray,
 
             u = W_pol @ e + sigma_u * rng.standard_normal(K)
             J_u = P @ A
+            col_norm2 = (J_u**2).sum(axis=0) + 1e-12  # (K,)
             g_u = J_u.T @ e
             W_pol += eta_w * np.outer(g_u, e)
 
             if sim_rehab:
-                J_s = (P @ A0) * u[None, :]  # (2, K)
+                J_s = dt * J_u * u[None, :]  # (2, K)
                 g_s = -J_s.T @ e  # (K,)  gradient that reduces error
-
+                g_s = g_s / col_norm2
                 s -= eta_a * (g_s + lam_a * (s - 1.0))
 
             current_loss = np.sqrt(e[0] ** 2 + e[1] ** 2)
