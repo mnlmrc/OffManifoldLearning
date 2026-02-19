@@ -23,8 +23,6 @@ def reshape_off_manifold(B_on, B_off, d, angle=.9):
     B_reshaped = B_om[:, :d]
     return B_reshaped
 
-import numpy as np
-
 
 def train_controller(A0: np.ndarray,
                      B: np.ndarray,
