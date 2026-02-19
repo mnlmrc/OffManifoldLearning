@@ -23,23 +23,29 @@ def reshape_off_manifold(B_on, B_off, d, angle=.9):
     B_reshaped = B_om[:, :d]
     return B_reshaped
 
+import numpy as np
+
 
 def train_controller(A0: np.ndarray,
                      B: np.ndarray,
                      W: np.ndarray,
-                     sigma_u: float=.1,
-                     eta_w: float=1e-3,
-                     eta_a: float=1e-6,
-                     lam_a=1e-2,
-                     n_trials: int=1000,
-                     ang: float | list | np.ndarray=None,
-                     radius: float=1.,
-                     maxT: int=1000,
-                     dt: float=.01,
-                     tol: float=.001,
-                     sim_rehab: bool=False
-                     #seed: int=0
-                     ):
+                     sigma_u: float = .1,      # action noise for u (exploration)
+                     eta_w: float = 1e-3,      # GD learning rate for W_pol
+                     # --- RL (plant) ---
+                     eta_a: float = 1e-5,      # RL learning rate for s
+                     sigma_s: float = 0.02,    # exploration noise for s (trial-level)
+                     beta: float = 0.02,       # reward-baseline update rate
+                     lam_a: float = 1e-2,      # regularize s toward 1
+                     #s_min: float = 0.2,       # bounds to avoid blow-ups
+                     #s_max: float = 2.0,
+                     #time_cost: float = 0.0,   # optional: penalize longer trials
+                     n_trials: int = 1000,
+                     ang: float | list | np.ndarray = None,
+                     radius: float = 1.,
+                     maxT: int = 1000,
+                     dt: float = .01,
+                     tol: float = .001,
+                     sim_rehab: bool = False):
 
     rng = np.random.default_rng()
 
@@ -48,65 +54,77 @@ def train_controller(A0: np.ndarray,
 
     N, K = A0.shape
 
-    #J = W @ B.T @ A0
     # force -> velocity mapping
-    P = W @ B.T
+    P = W @ B.T  # (2, N)
 
-    # plant scaling
-    s = np.ones(K)
+    # plant scaling parameters (we RL-learn these)
+    s = np.ones(K, dtype=float)
 
-    # init policy
-    W_pol = np.zeros((K, 2))
+    # policy parameters (we GD-learn these)
+    W_pol = np.zeros((K, 2), dtype=float)
 
-    # init learning metrics
+    # logging
     success = np.zeros((n_trials,), dtype=bool)
     nsteps = np.zeros(n_trials, dtype=int)
     loss = np.zeros(n_trials, dtype=float)
     meanDev = np.zeros_like(loss)
     velMax = np.zeros_like(loss)
 
-    # loop over trials
+    # RL baseline (for variance reduction)
+    baseline = 0.0
+    baseline_init = False
+
     for tr in range(n_trials):
-        pos_star = radius * np.array([np.cos(ang[tr]), np.sin(ang[tr])])
+
+        # target
+        pos_star = radius * np.array([np.cos(ang[tr]), np.sin(ang[tr])], dtype=float)
+
+        # --- RL: sample a plant for this trial (keep fixed during the trial) ---
+        if sim_rehab:
+            eps_s = rng.standard_normal(K)                      # exploration direction
+            s_trial = s + sigma_s * eps_s #np.clip(s + sigma_s * eps_s, s_min, s_max)
+        else:
+            eps_s = None
+            s_trial = s
+
+        # state
         u = np.zeros((K,), dtype=float)
         pos = np.zeros((2,), dtype=float)
-        current_loss, t, velMax[tr], dev = np.inf, 0, 0, 0
+        dev = 0.0
+        velMax_tr = 0.0
+        current_loss = np.inf
+
         for t in range(maxT):
-            # update A
-            A = A0 * s[None, :]
-
-            # map u -> force
-            f = A @ u  # (N,)
-
-            # decode velocity and update position
-            vel = P @ f
-            pos = pos + dt * vel
-
-            # calculate error
-            e = pos_star - pos
-
-            u = W_pol @ e + sigma_u * rng.standard_normal(K)
-            J_u = P @ A
-            col_norm2 = (J_u**2).sum(axis=0) + 1e-12  # (K,)
-            g_u = J_u.T @ e
-            W_pol += eta_w * np.outer(g_u, e)
-
-            if sim_rehab:
-                J_s = dt * J_u * u[None, :]  # (2, K)
-                g_s = -J_s.T @ e  # (K,)  gradient that reduces error
-                g_s = g_s / col_norm2
-                s -= eta_a * (g_s + lam_a * (s - 1.0))
-
-            current_loss = np.sqrt(e[0] ** 2 + e[1] ** 2)
-
             print(f'doing trial {tr + 1} of {n_trials}, loss = {current_loss}')
 
-            vel_mod = np.linalg.norm(vel)
-            if  vel_mod > velMax[tr]:
-                velMax[tr] = vel_mod.copy()
+            # plant for this trial
+            A = A0 * s_trial[None, :]                           # (N, K)
 
-            bb = (pos_star @ pos_star) + 1e-12
-            alpha = (pos @ pos_star) / bb
+            # u -> force -> velocity -> position
+            f = A @ u                                           # (N,)
+            vel = P @ f                                         # (2,)
+            pos = pos + dt * vel                                # (2,)
+
+            # error
+            e = pos_star - pos                                  # (2,)
+
+            # --- policy: sample action u around mean mu = W_pol @ e ---
+            mu = W_pol @ e                                      # (K,)
+            u = mu + sigma_u * rng.standard_normal(K)           # (K,)
+
+            # --- GD update for W_pol (model-based) ---
+            # d pos / d u = dt * (P @ A)
+            J_u = dt * (P @ A)                                  # (2, K)
+            g_u = J_u.T @ e                                     # (K,)  (descending loss uses +outer(g_u,e) given your convention)
+            W_pol += eta_w * np.outer(g_u, e)                   # (K,2)
+
+            # metrics
+            current_loss = np.linalg.norm(e)
+            vel_mod = np.linalg.norm(vel)
+            if vel_mod > velMax_tr:
+                velMax_tr = vel_mod
+
+            alpha = (pos @ pos_star) / ((pos_star @ pos_star) + 1e-12)
             proj = alpha * pos_star
             dev += np.linalg.norm(pos - proj)
 
@@ -118,7 +136,37 @@ def train_controller(A0: np.ndarray,
         nsteps[tr] = steps
         loss[tr] = current_loss
         meanDev[tr] = dev / steps
+        velMax[tr] = velMax_tr
 
+        # --- RL update for s (trial-level REINFORCE) ---
+        if sim_rehab:
+            # return: higher is better
+            # simplest: negative terminal error, optional time penalty
+            R = -current_loss #- time_cost * steps
+
+            # baseline (EMA) to reduce variance
+            if not baseline_init:
+                baseline = R
+                baseline_init = True
+            else:
+                baseline = (1.0 - beta) * baseline + beta * R
+
+            adv = R - baseline
+
+            # REINFORCE for Gaussian perturbation of s:
+            # s_trial = s + sigma_s * eps_s
+            # grad log p(s_trial|s) = eps_s / sigma_s
+            # using additive parametrization => update proportional to eps_s / sigma_s^2
+            s += eta_a * adv * (eps_s / (sigma_s ** 2))
+
+            # regularize toward 1.0 (like your previous lam_a term)
+            s -= eta_a * lam_a * (s - 1.0)
+
+            # keep stable / interpretable
+            # s = np.clip(s, s_min, s_max)
+
+    # return the final plant matrix (using current mean s)
+    A = A0 * s[None, :]
     return W_pol, success, nsteps, loss, meanDev, velMax, A
 
 
@@ -192,7 +240,7 @@ if __name__ == '__main__':
                 if map == 'on':
                     B = B_on.copy()
                 elif map == 'off':
-                    B = reshape_off_manifold(B_on, B_off, d, angle=2)
+                    B = reshape_off_manifold(B_on, B_off, d, angle=10)
 
                 W_pol, success, nsteps, loss, meanDev, velMax, A = train_controller(A0, B, W, ang=ang, n_trials=n_trials,
                                                                                     sim_rehab=sim_rehab, eta_a=1e-5)
