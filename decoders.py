@@ -1,67 +1,50 @@
 import numpy as np
 
-def pos_decoder(f_t,
-               B,
-               W,
-               mu: np.ndarray=None,
-               pos_gain: float=1.0,
-               pos_clip: float=None):
-
-    if mu is None:
-        mu = np.zeros_like(f_t)
-
-    z = B.T @ (f_t - mu)            # (d,)
-    pos = pos_gain * (W @ z)    # (2,)
-    if pos_clip is not None:
-        pos = np.clip(pos, -pos_clip, pos_clip)
-    return pos
-
-
-def vel_decoder(f_t,
-                B,
-                W,
-                mu: np.ndarray = None,
-                vel_gain: float = 1.0,
-                vel_clip: float = None):
-    if mu is None:
-        mu = np.zeros_like(f_t)
-
-    z = B.T @ (f_t - mu)              # (d,)
-    v = vel_gain * (W @ z)            # (2,)
-    if vel_clip is not None:
-        v = np.clip(v, -vel_clip, vel_clip)
-    return v
-
-
-def find_permutation_for_angle(P_base, make_Pprime, target_angle, tol=0.02, max_iter=10000):
-
-    for _ in range(max_iter):
-        Pp = make_Pprime()
-        ang = decoder_angle(P_base, Pp)
-
-        if abs(ang - target_angle) < tol:
-            return Pp, ang
-
-    raise RuntimeError("No permutation found within tolerance.")
-
-
-def decoder_angle(P, Pp):
-    num = np.sum(P * Pp)
-    den = np.linalg.norm(P) * np.linalg.norm(Pp)
-    cosang = np.clip(num / den, -1.0, 1.0)
-    return np.arccos(cosang)   # radians
 
 class VelocityDecoder:
     def __init__(self,
-                 f_t: np.ndarray,
                  B: np.ndarray,
                  W: np.ndarray,
-    ):
+                 angle: float = 0,
+                 tol: float = 0.01,
+                 max_iter: int = 10000
+                 ):
+        Nd = B.shape[1]
+        perm_wm = np.random.permutation(Nd)
+        self.B = B
+        self.W = W
+        self.P0 = W @ B.T
+        G_wm = self._perm_matrix(perm_wm)
+        self.P_wm = W @ G_wm @ B.T
+        self.P_om = self._calc_P_om()
+        self.angle = angle
+        self.max_iter = max_iter
+        self.tol = tol
 
-        P = W @ B.T
+    def _perm_matrix(self, p):
+        """
+        p is a permutation of np.arange(n).
+        Returns n x n permutation matrix
+        """
+        n = len(p)
+        G = np.eye(n)[p]
+        return G
 
+    def _decoder_angle(self, P_om):
+        num = np.sum(self.P0 * P_om)
+        den = np.linalg.norm(self.P0) * np.linalg.norm(P_om)
+        cosang = np.clip(num / den, -1.0, 1.0)
+        return np.arccos(cosang)  # radians
 
+    def _calc_P_om(self):
+        for _ in range(self.max_iter):
+            Nc = self.B.shape[0]
+            perm_om = np.random.permutation(Nc)
+            G_om = self._perm_matrix(perm_om)
+            P_om = self.W @ (self.B.T @ G_om)
+            ang = self._decoder_angle(P_om)
 
+            if abs(ang - self.angle) < self.tol:
+                return P_om, ang
 
-
-
+        raise RuntimeError("No permutation found within tolerance.")

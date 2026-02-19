@@ -1,5 +1,5 @@
 import numpy as np
-from decoders import vel_decoder
+from OffManifoldLearning import vel_decoder
 import pandas as pd
 import os
 import argparse
