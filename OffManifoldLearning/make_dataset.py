@@ -114,7 +114,7 @@ if __name__ == '__main__':
     tinfo = {'finger': [], 'dirX': [], 'dirY': [], 'dirZ': [], 'group': [], 'w_f': [], 'w_b': [], 'subj_id': [],
              'mapping': [] if post_rehab else None
              }
-    save_dir = 'data/'
+    save_dir = '../data/'
     os.makedirs(save_dir, exist_ok=True)
     N = 40
     enslavement = np.array([.1, .1, .1, .4, .4])

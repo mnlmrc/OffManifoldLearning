@@ -14,12 +14,12 @@ class VelocityDecoder:
         self.B = B
         self.W = W
         self.P0 = W @ B.T
-        G_wm = self._perm_matrix(perm_wm)
-        self.P_wm = W @ G_wm @ B.T
-        self.P_om = self._calc_P_om()
         self.angle = angle
         self.max_iter = max_iter
         self.tol = tol
+        G_wm = self._perm_matrix(perm_wm)
+        self.P_wm = W @ G_wm @ B.T
+        self.P_om = self._calc_P_om()
 
     def _perm_matrix(self, p):
         """
@@ -45,6 +45,6 @@ class VelocityDecoder:
             ang = self._decoder_angle(P_om)
 
             if abs(ang - self.angle) < self.tol:
-                return P_om, ang
+                return P_om
 
         raise RuntimeError("No permutation found within tolerance.")
