@@ -6,7 +6,7 @@ class VelocityDecoder:
                  B: np.ndarray,
                  W: np.ndarray,
                  angle: float = 0,
-                 tol: float = 0.05,
+                 tol: float = 0.1,
                  max_iter: int = 10000
                  ):
         Nd = B.shape[1]
@@ -46,6 +46,7 @@ class VelocityDecoder:
             ang = self._decoder_angle(P_om)
 
             if abs(ang - self.angle) < self.tol:
+                self.angle_real = ang
                 return P_om
 
         #raise RuntimeError("No permutation found within tolerance.")

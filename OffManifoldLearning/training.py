@@ -198,14 +198,78 @@ class TrainController():
         self.s += self.eta_a * adv * (self.exp_noise / (self.sigma_s ** 2))
         pass
 
-def train_participant(group, sn, sim_rehab=False):
+
+def train_participant(group, sn, angle):
     rng = np.random.default_rng()
 
     n_trials = 1200
 
     d = 5
 
-    save_dir = 'data/post_rehab' if sim_rehab is True else 'data/controller_training'
+    save_dir = 'data/controller_training'
+    os.makedirs(save_dir, exist_ok=True)
+
+    # load single finger force, basis vectors and calculate intrisic manifold
+    F = np.load(f'data/baseline/single_finger.pretraining.{group}.{sn + 100}.npy')
+    A0 = np.load(f'data/baseline/basis_vectors.{group}.{sn + 100}.npy')
+    Nc = A0.shape[0]
+    F_c = F.reshape(-1, Nc)
+    B = calc_intrinsic_manifold(F_c, d)
+
+    Q, _ = np.linalg.qr(rng.standard_normal((d, d)))
+    W = Q[:2]
+    np.save(f'{save_dir}/W_dec.{group}.{sn + 100}.npy', W)
+
+    VD = VelocityDecoder(B, W, angle=np.deg2rad(angle))
+    angle_real = np.rad2deg(VD.angle_real)
+    P = VD.P_om
+
+    print(f'doing participant {sn + 100}, {group}, angle {angle}, angle real: {angle_real:.02f}...')
+
+    target = rng.uniform(0, 2, size=n_trials) * np.pi
+
+    TC = TrainController(A0, B, P, target=target, train_A=False, train_W_pol=True, n_trials=n_trials, maxT=1000)
+    TC.simulate_training()
+    trajectories = np.array(TC.trajectories)
+    distance = np.array(TC.distance)
+
+    np.save(f'{save_dir}/trajectories.{angle}.{group}.{sn + 100}.npy', trajectories)
+    np.save(f'{save_dir}/distance.{angle}.{group}.{sn + 100}.npy', distance)
+    np.save(f'{save_dir}/W_pol.{angle}.{group}.{sn + 100}.npy', TC.W_pol)
+
+    df = pd.DataFrame()
+    df['success'] = TC.success
+    df['nsteps'] = TC.nsteps
+    df['dist_to_target'] = TC.dist_to_target
+    df['meanDev'] = TC.meanDev
+    df['velMax'] = TC.velMax
+    df['subj_id'] = sn + 100
+    df['group'] = group
+    df['angle'] = angle
+    df['angle_real'] = angle_real
+    df['target'] = target
+    df['TN'] = np.linspace(1, n_trials, n_trials)
+    df.to_csv(f'{save_dir}/log_training.{angle}.{group}.{sn + 100}.tsv', sep='\t', index=False)
+
+
+def training():
+    N = 20
+    group = ['stroke', 'intact']
+    angle = [0, 20, 40, 60, 80, 90]
+    for gr in group:
+        for ang in angle:
+            with parallel_backend("loky"):  # use threading for debug in PyCharm, for run use loky
+                Parallel(n_jobs=4)(delayed(train_participant)(gr, sn, ang) for sn in range(N))
+
+
+def rehab_participant(group, sn, angle):
+    rng = np.random.default_rng()
+
+    n_trials = 1200
+
+    d = 5
+
+    save_dir = 'data/post_rehab'
     os.makedirs(save_dir, exist_ok=True)
 
     # load single finger force, basis vectors and calculate intrisic manifold
@@ -215,69 +279,46 @@ def train_participant(group, sn, sim_rehab=False):
     F_c = F.reshape(-1, Nc)
     B = calc_intrinsic_manifold(F_c, d)
 
-    # if simulating rehabilitation, W_dec should be already saved from the training expeirment
-    if sim_rehab:
-        W = np.load(f'data/controller_training/W_dec.{group}.{sn + 100}.npy')
-    else:
-        Q, _ = np.linalg.qr(rng.standard_normal((d, d)))
-        W = Q[:2]  # define decoder mapping
-        np.save(f'{save_dir}/W_dec.{group}.{sn + 100}.npy', W)
+    W = np.load(f'data/controller_training/W_dec.{group}.{sn + 100}.npy')
 
-    # try different angles with respect to intrinsic manifold
-    for angle in [0, 20, 40, 60, 80]:
-        print(f'doing participant {sn + 100}, {group}, angle {angle}...')
+    VD = VelocityDecoder(B, W, angle=np.deg2rad(angle))
+    angle_real = np.rad2deg(VD.angle_real)
+    P = VD.P_om
 
-        VD = VelocityDecoder(B, W, angle=np.deg2rad(angle))
-        angle_real = VD.angle_real
-        P = VD.P_om
+    print(f'doing participant {sn + 100}, {group}, angle {angle}, angle real {angle_real}...')
 
-        #target = rng.choice([0, .25, .5, .75, 1, 1.25, 1.5, 1.75], size=n_trials) * np.pi
-        target = rng.uniform(0, 2, size=1200) * np.pi
+    target = rng.uniform(0, 2, size=n_trials) * np.pi
 
-        TC = TrainController(A0, B, P, target=target, train_A=sim_rehab, train_W_pol=True, n_trials=n_trials, maxT=1000)
-        #TC.simulate_trial(0)
-        TC.simulate_training()
-        trajectories = np.array(TC.trajectories)
-        distance = np.array(TC.distance)
+    TC = TrainController(A0, B, P, target=target, train_A=True, train_W_pol=True, n_trials=n_trials, maxT=1000)
+    TC.simulate_training()
+    trajectories = np.array(TC.trajectories)
+    distance = np.array(TC.distance)
 
-        np.save(f'{save_dir}/trajectories.{angle}.{group}.{sn + 100}.npy', trajectories)
-        np.save(f'{save_dir}/distance.{angle}.{group}.{sn + 100}.npy', distance)
-        np.save(f'{save_dir}/W_pol.{angle}.{group}.{sn + 100}.npy', TC.W_pol)
-        if sim_rehab:
-            np.save(f'{save_dir}/basis_vectors.{angle}.{group}.{sn + 100}.npy', TC.A)
+    np.save(f'{save_dir}/trajectories.{angle}.{group}.{sn + 100}.npy', trajectories)
+    np.save(f'{save_dir}/distance.{angle}.{group}.{sn + 100}.npy', distance)
+    np.save(f'{save_dir}/W_pol.{angle}.{group}.{sn + 100}.npy', TC.W_pol)
+    np.save(f'{save_dir}/basis_vectors.{angle}.{group}.{sn + 100}.npy', TC.A)
 
-        df = pd.DataFrame()
-        df['success'] = TC.success
-        df['nsteps'] = TC.nsteps
-        df['dist_to_target'] = TC.dist_to_target
-        df['meanDev'] = TC.meanDev
-        df['velMax'] = TC.velMax
-        #df['curvMax'] = TC.curv_max
-        #df['curvMean'] = TC.curv_mean
-        df['subj_id'] = sn + 100
-        df['group'] = group
-        df['angle'] = angle_real
-        df['target'] = target
-        df['TN'] = np.linspace(1, n_trials, n_trials)
-        df.to_csv(f'{save_dir}/log_training.{angle}.{group}.{sn + 100}.tsv', sep='\t', index=False)
+    df = pd.DataFrame()
+    df['success'] = TC.success
+    df['nsteps'] = TC.nsteps
+    df['dist_to_target'] = TC.dist_to_target
+    df['meanDev'] = TC.meanDev
+    df['velMax'] = TC.velMax
+    df['subj_id'] = sn + 100
+    df['group'] = group
+    df['angle'] = angle
+    df['angle_real'] = angle_real
+    df['target'] = target
+    df['TN'] = np.linspace(1, n_trials, n_trials)
+    df.to_csv(f'{save_dir}/log_training.{angle}.{group}.{sn + 100}.tsv', sep='\t', index=False)
 
 
-def main(args):
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--sim_rehab",
-        action=argparse.BooleanOptionalAction
-    )
-    args = parser.parse_args(args)
-
-    sim_rehab = args.sim_rehab
-
-    # dataset has 40 patients/group
+def rehabilitation():
     N = 20
     group = ['stroke', 'intact']
-
-    train_participant('stroke', 4, True)
-    # loop thorugh participants
+    angle = [0, 20, 40, 60, 80, 90]
     for gr in group:
-        with parallel_backend("loky"):  # use threading for debug in PyCharm, for run use loky
-            Parallel(n_jobs=4)(delayed(train_participant)(gr, sn, sim_rehab) for sn in range(N))
+        for ang in angle:
+            with parallel_backend("loky"):  # use threading for debug in PyCharm, for run use loky
+                Parallel(n_jobs=4)(delayed(rehab_participant)(gr, sn, ang) for sn in range(N))
