@@ -1,12 +1,12 @@
 import numpy as np
-
+import warnings
 
 class VelocityDecoder:
     def __init__(self,
                  B: np.ndarray,
                  W: np.ndarray,
                  angle: float = 0,
-                 tol: float = 0.01,
+                 tol: float = 0.05,
                  max_iter: int = 10000
                  ):
         Nd = B.shape[1]
@@ -15,6 +15,7 @@ class VelocityDecoder:
         self.W = W
         self.P0 = W @ B.T
         self.angle = angle
+        self.angle_real = angle
         self.max_iter = max_iter
         self.tol = tol
         G_wm = self._perm_matrix(perm_wm)
@@ -47,4 +48,7 @@ class VelocityDecoder:
             if abs(ang - self.angle) < self.tol:
                 return P_om
 
-        raise RuntimeError("No permutation found within tolerance.")
+        #raise RuntimeError("No permutation found within tolerance.")
+        warnings.warn("No permutation found within tolerance. Using P0")
+        self.angle_real = 0
+        return self.P0
