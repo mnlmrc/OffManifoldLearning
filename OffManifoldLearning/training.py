@@ -61,9 +61,11 @@ class TrainController():
         self.n_trials = n_trials
         self.maxT = maxT
 
-        self.mean_dist = 0.0
-        self.mean_steps = 0.0
-        self.mean_jerk = 0.0
+        self.mean_dist = 0
+        self.mean_steps = 0
+        self.mean_jerk = 0
+        self.mean_effort = 0
+        self.mean_meanDev = 0
 
         self.train_W_pol = train_W_pol
         self.train_A = train_A
@@ -76,11 +78,10 @@ class TrainController():
         self.velMax = np.zeros(n_trials)
         self.success = np.zeros(n_trials)
         self.meanDev = np.zeros(n_trials)
-        # self.curv_mean = np.zeros(n_trials)
-        # self.curv_max = np.zeros(n_trials)
+        self.effort = np.zeros(n_trials)
         self.nsteps = np.zeros(n_trials)
         self.jerk = np.zeros(n_trials)
-        self.dist_to_target = np.zeros(n_trials)
+        self.dist_to_target = np.zeros(n_trials) + np.inf
 
     def simulate_training(self):
         for tr in range(self.n_trials):
@@ -110,7 +111,7 @@ class TrainController():
             pos, vel, u, e = self._update_pos(f, pos)
             traj[t] = pos  # record position
             self.dist_to_target[tr] = np.linalg.norm(e)
-            dist[t] = self.dist_to_target[tr].copy()
+            dist[t] = self.dist_to_target[tr].copy()  # record distance to target
 
             # updated deviation from straight line
             alpha = (pos @ self.pos_star) / ((self.pos_star @ self.pos_star) + 1e-12)
@@ -129,12 +130,12 @@ class TrainController():
                 success = True
                 break
 
+        self.dist_to_target[tr] = np.linalg.norm(e)
+        self.effort[tr] = np.linalg.norm(s)
         self.velMax[tr] = velMax
         self.success[tr] = success
         self.meanDev[tr] = dev / (t + 1)
         self.nsteps[tr] = t + 1
-
-        #_, self.curv_mean[tr], self.curv_max[tr] = curvature_2d(traj, self.dt)
 
         return dist, traj
 
@@ -165,38 +166,35 @@ class TrainController():
 
     def _update_Wpol_gd(self, e):
 
-        # feedback error
         J_u = (self.P @ self.A)  # (2, K)
         g_u = J_u.T @ e  # (K,)
-
-        # effort
-        #g_u -= self.lam_u * u
-
-        # # jerk of command (3rd finite difference)
-        # j_u = u - 3 * u_prev + 3 * u_prev2 - u_prev3
-        # g_u -= self.lam_j * j_u  # (K,)
 
         self.W_pol += self.eta_w * np.outer(g_u, e)  # (K,2)
 
     def _update_s(self, tr):
-        dist = float(self.dist_to_target[tr])
-        steps = float(self.nsteps[tr])
-        jerk = float(self.jerk[tr])
+        dist = self.dist_to_target[tr]
+        steps = self.nsteps[tr]
+        jerk = self.jerk[tr]
+        effort = self.effort[tr]
+        meanDev = self.meanDev[tr]
 
         cost_dist = 1 - (self.mean_dist / (self.mean_dist + dist + 1e-8))
         cost_steps = 1 - (self.mean_steps/ (self.mean_steps + steps + 1e-8))
+        cost_effort = 1 - (self.mean_effort / (self.mean_effort + effort + 1e-8))
         cost_jerk = 1 - (self.mean_jerk / (self.mean_jerk + jerk + 1e-8))
+        cost_meanDev = 1 - (self.mean_meanDev / (self.mean_meanDev + meanDev + 1e-8))
 
-        R = -(cost_dist + cost_steps + cost_jerk)
+        R = -(cost_dist + cost_steps + cost_jerk + cost_effort + cost_meanDev)
 
         self.mean_dist += (dist - self.mean_dist) / (tr + 1)
         self.mean_steps += (steps - self.mean_steps) / (tr + 1)
         self.mean_jerk += (jerk - self.mean_jerk) / (tr + 1)
+        self.mean_effort += (effort - self.mean_effort) / (tr + 1)
+        self.mean_meanDev += (meanDev - self.mean_meanDev) / (tr + 1)
 
-        adv = R - self.baseline
+        rpe = R - self.baseline
         self.baseline += (R - self.baseline) / (tr + 1)
-        self.s += self.eta_a * adv * (self.exp_noise / (self.sigma_s ** 2))
-        pass
+        self.s += self.eta_a * rpe * (self.exp_noise / (self.sigma_s ** 2))
 
 
 def train_participant(group, sn, angle):
@@ -241,6 +239,7 @@ def train_participant(group, sn, angle):
     df['success'] = TC.success
     df['nsteps'] = TC.nsteps
     df['dist_to_target'] = TC.dist_to_target
+    df['jerk'] = TC.jerk
     df['meanDev'] = TC.meanDev
     df['velMax'] = TC.velMax
     df['subj_id'] = sn + 100
@@ -252,20 +251,10 @@ def train_participant(group, sn, angle):
     df.to_csv(f'{save_dir}/log_training.{angle}.{group}.{sn + 100}.tsv', sep='\t', index=False)
 
 
-def training():
-    N = 20
-    group = ['stroke', 'intact']
-    angle = [0, 20, 40, 60, 80, 90]
-    for gr in group:
-        for ang in angle:
-            with parallel_backend("loky"):  # use threading for debug in PyCharm, for run use loky
-                Parallel(n_jobs=4)(delayed(train_participant)(gr, sn, ang) for sn in range(N))
-
-
 def rehab_participant(group, sn, angle):
     rng = np.random.default_rng()
 
-    n_trials = 1200
+    n_trials = 10000
 
     d = 5
 
@@ -274,7 +263,7 @@ def rehab_participant(group, sn, angle):
 
     # load single finger force, basis vectors and calculate intrisic manifold
     F = np.load(f'data/baseline/single_finger.pretraining.{group}.{sn + 100}.npy')
-    A0 = np.load(f'data/basis_vectors/basis_vectors.{group}.{sn + 100}.npy')
+    A0 = np.load(f'data/baseline/basis_vectors.{group}.{sn + 100}.npy')
     Nc = A0.shape[0]
     F_c = F.reshape(-1, Nc)
     B = calc_intrinsic_manifold(F_c, d)
@@ -303,6 +292,7 @@ def rehab_participant(group, sn, angle):
     df['success'] = TC.success
     df['nsteps'] = TC.nsteps
     df['dist_to_target'] = TC.dist_to_target
+    df['jerk'] = TC.jerk
     df['meanDev'] = TC.meanDev
     df['velMax'] = TC.velMax
     df['subj_id'] = sn + 100
@@ -321,4 +311,14 @@ def rehabilitation():
     for gr in group:
         for ang in angle:
             with parallel_backend("loky"):  # use threading for debug in PyCharm, for run use loky
-                Parallel(n_jobs=4)(delayed(rehab_participant)(gr, sn, ang) for sn in range(N))
+                Parallel(n_jobs=8)(delayed(rehab_participant)(gr, sn, ang) for sn in range(N))
+
+
+def training():
+    N = 20
+    group = ['stroke', 'intact']
+    angle = [0, 20, 40, 60, 80, 90]
+    for gr in group:
+        for ang in angle:
+            with parallel_backend("loky"):  # use threading for debug in PyCharm, for run use loky
+                Parallel(n_jobs=8)(delayed(train_participant)(gr, sn, ang) for sn in range(N))

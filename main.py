@@ -6,13 +6,12 @@ def main():
         raise ValueError("Provide subcommand (e.g. training)")
 
     cmd = sys.argv[1]
-    #args = sys.argv[2:]  # everything after subcommand
 
     if cmd == "training":
         training.training()
-    if cmd == "rehabilitation":
+    elif cmd == "rehabilitation":
         training.rehabilitation()
-    elif cmd == "make_dataset":
+    elif cmd == "make_dataset_baseline":
         make_dataset.make_dataset_baseline()
     elif cmd == "make_dataset_postrehab":
         make_dataset.make_dataset_postrehab()
