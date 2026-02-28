@@ -1,5 +1,5 @@
 import argparse
-
+import OffManifoldLearning.globals as gl
 import numpy as np
 import pandas as pd
 import os
@@ -108,14 +108,14 @@ def make_dataset_baseline():
     group = ['stroke', 'intact']
     tinfo = {'finger': [], 'dirX': [], 'dirY': [], 'dirZ': [], 'group': [], 'w_f': [], 'w_b': [], 'subj_id': [],
              'TN': []}
-    save_dir = 'data/baseline'
+    save_dir = os.path.join(gl.baseDir, 'baseline')
     os.makedirs(save_dir, exist_ok=True)
     N = 20
     enslavement = np.array([.1, .1, .1, .4, .4])
     for gr in group:
         for sn in range(N):
             print(f'doing {gr},{sn + 1}/{N}')
-            B = make_recruitment(Nf=5, Nd=3, d=10)
+            B = make_recruitment(Nf=5, Nd=3, d=20)
             C = make_enslavement(enslavement)
             if gr == 'intact':
                 w_f = rng.uniform(.6, 1.)
@@ -123,7 +123,7 @@ def make_dataset_baseline():
             elif gr == 'stroke':
                 w_f = rng.uniform(.0, .3)
                 w_b = rng.uniform(.6, .9)
-            A = make_basis_vectors(Nf=5, Nd=3, d=10, w_f=w_f, w_b=w_b)
+            A = make_basis_vectors(Nf=5, Nd=3, d=20, w_f=w_f, w_b=w_b)
             F, finger, direction = make_finger_force(A, B, C)
             np.save(f'{save_dir}/basis_vectors.{gr}.{sn + 100}.npy', A)
             np.save(f'{save_dir}/single_finger.pretraining.{gr}.{sn + 100}.npy', F)
@@ -145,20 +145,19 @@ def make_dataset_baseline():
 
 
 def make_dataset_postrehab():
-    rng = np.random.default_rng(seed=0)
     group = ['stroke', 'intact']
     tinfo = {'finger': [], 'dirX': [], 'dirY': [], 'dirZ': [], 'group': [], 'subj_id': [], 'TN': [], 'angle': []}
-    save_dir = 'data/post_rehab'
+    save_dir = os.path.join(gl.baseDir, 'post_rehab')
     N = 20
     enslavement = np.array([.1, .1, .1, .4, .4])
-    angle = [0, 20, 40, 60, 80, 90]
+    angle = [0, 30, 50, 70, 90]
     for gr in group:
         for sn in range(N):
             for ang in angle:
                 print(f'doing dataset {gr},{sn + 1}/{N}')
-                B = make_recruitment(Nf=5, Nd=3, d=10)
+                B = make_recruitment(Nf=5, Nd=3, d=20)
                 C = make_enslavement(enslavement)
-                A = np.load(f'data/post_rehab/basis_vectors.{ang}.{gr}.{sn + 100}.npy')
+                A = np.load(os.path.join(gl.baseDir, 'post_rehab', f'basis_vectors.{ang}.{gr}.{sn + 100}.npy'))
                 F, finger, direction = make_finger_force(A, B, C)
                 np.save(f'{save_dir}/single_finger.post_rehab.{ang}.{gr}.{sn + 100}.npy', F)
                 tinfo['finger'].extend(finger)

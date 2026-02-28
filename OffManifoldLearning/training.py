@@ -4,6 +4,7 @@ import os
 import argparse
 from OffManifoldLearning.decoders import VelocityDecoder
 from OffManifoldLearning.util import calc_intrinsic_manifold, curvature_2d, calc_jerk
+import OffManifoldLearning.globals as gl
 from joblib import delayed, parallel_backend, Parallel
 
 
@@ -204,12 +205,12 @@ def train_participant(group, sn, angle):
 
     d = 5
 
-    save_dir = 'data/controller_training'
+    save_dir = os.path.join(gl.baseDir, 'controller_training')
     os.makedirs(save_dir, exist_ok=True)
 
     # load single finger force, basis vectors and calculate intrisic manifold
-    F = np.load(f'data/baseline/single_finger.pretraining.{group}.{sn + 100}.npy')
-    A0 = np.load(f'data/baseline/basis_vectors.{group}.{sn + 100}.npy')
+    F = np.load(os.path.join(gl.baseDir, 'baseline', f'single_finger.pretraining.{group}.{sn + 100}.npy'))
+    A0 = np.load(os.path.join(gl.baseDir, 'baseline', f'basis_vectors.{group}.{sn + 100}.npy'))
     Nc = A0.shape[0]
     F_c = F.reshape(-1, Nc)
     B = calc_intrinsic_manifold(F_c, d)
@@ -254,21 +255,21 @@ def train_participant(group, sn, angle):
 def rehab_participant(group, sn, angle):
     rng = np.random.default_rng()
 
-    n_trials = 10000
+    n_trials = 15000
 
     d = 5
 
-    save_dir = 'data/post_rehab'
+    save_dir = os.path.join(gl.baseDir, 'post_rehab')
     os.makedirs(save_dir, exist_ok=True)
 
     # load single finger force, basis vectors and calculate intrisic manifold
-    F = np.load(f'data/baseline/single_finger.pretraining.{group}.{sn + 100}.npy')
-    A0 = np.load(f'data/baseline/basis_vectors.{group}.{sn + 100}.npy')
+    F = np.load(os.path.join(gl.baseDir, 'baseline', f'single_finger.pretraining.{group}.{sn + 100}.npy'))
+    A0 = np.load(os.path.join(gl.baseDir, 'baseline', f'basis_vectors.{group}.{sn + 100}.npy'))
     Nc = A0.shape[0]
     F_c = F.reshape(-1, Nc)
     B = calc_intrinsic_manifold(F_c, d)
 
-    W = np.load(f'data/controller_training/W_dec.{group}.{sn + 100}.npy')
+    W = np.load(os.path.join(gl.baseDir, 'controller_training', f'W_dec.{group}.{sn + 100}.npy'))
 
     VD = VelocityDecoder(B, W, angle=np.deg2rad(angle))
     angle_real = np.rad2deg(VD.angle_real)
@@ -283,8 +284,8 @@ def rehab_participant(group, sn, angle):
     trajectories = np.array(TC.trajectories)
     distance = np.array(TC.distance)
 
-    np.save(f'{save_dir}/trajectories.{angle}.{group}.{sn + 100}.npy', trajectories)
-    np.save(f'{save_dir}/distance.{angle}.{group}.{sn + 100}.npy', distance)
+    #np.save(f'{save_dir}/trajectories.{angle}.{group}.{sn + 100}.npy', trajectories)
+    #np.save(f'{save_dir}/distance.{angle}.{group}.{sn + 100}.npy', distance)
     np.save(f'{save_dir}/W_pol.{angle}.{group}.{sn + 100}.npy', TC.W_pol)
     np.save(f'{save_dir}/basis_vectors.{angle}.{group}.{sn + 100}.npy', TC.A)
 
@@ -307,18 +308,18 @@ def rehab_participant(group, sn, angle):
 def rehabilitation():
     N = 20
     group = ['stroke', 'intact']
-    angle = [0, 20, 40, 60, 80, 90]
+    angle = [0, 30, 50, 70, 90]
     for gr in group:
         for ang in angle:
             with parallel_backend("loky"):  # use threading for debug in PyCharm, for run use loky
-                Parallel(n_jobs=8)(delayed(rehab_participant)(gr, sn, ang) for sn in range(N))
+                Parallel(n_jobs=3)(delayed(rehab_participant)(gr, sn, ang) for sn in range(N))
 
 
 def training():
     N = 20
     group = ['stroke', 'intact']
-    angle = [0, 20, 40, 60, 80, 90]
+    angle = [0, 30, 50, 70, 90]
     for gr in group:
         for ang in angle:
             with parallel_backend("loky"):  # use threading for debug in PyCharm, for run use loky
-                Parallel(n_jobs=8)(delayed(train_participant)(gr, sn, ang) for sn in range(N))
+                Parallel(n_jobs=3)(delayed(train_participant)(gr, sn, ang) for sn in range(N))
