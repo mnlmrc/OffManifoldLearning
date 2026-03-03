@@ -323,3 +323,32 @@ def training():
         for ang in angle:
             with parallel_backend("loky"):  # use threading for debug in PyCharm, for run use loky
                 Parallel(n_jobs=3)(delayed(train_participant)(gr, sn, ang) for sn in range(N))
+
+
+def pool_log_training(session, angle=[0, 50, 70, 90]):
+    group = ['stroke', 'intact']
+    tinfo = pd.read_csv(os.path.join(gl.baseDir, 'baseline', 'tinfo.tsv'), sep='\t')
+    log_training = pd.DataFrame()
+    for gr in group:
+        for ang in angle:
+            for sn in tinfo.subj_id.unique():
+                log = pd.read_csv(os.path.join(gl.baseDir, session, f'log_training.{ang}.{gr}.{sn}.tsv'), sep='\t')
+                log_ds = log[::20]
+                log_training = pd.concat([log_training, log_ds])
+    log_training.to_csv(os.path.join(gl.baseDir, session, 'log_training.tsv'), sep='\t', index=False)
+
+
+def calc_A_diff(angle=[0, 50, 70, 90]):
+    group = ['stroke', 'intact']
+    tinfo = pd.read_csv(os.path.join(gl.baseDir, 'post_rehab', 'tinfo.tsv'), sep='\t')
+    N = len(tinfo.subj_id.unique())
+    Nc, Nd = 15, 36
+    A_diff = np.zeros((len(angle), N, Nc, Nd))
+    for g, gr in enumerate(group):
+        for a, ang in enumerate(angle):
+            for s, sn in enumerate(tinfo.subj_id.unique()):
+                A0 = np.load(os.path.join(gl.baseDir, 'baseline', f'basis_vectors.{gr}.{sn}.npy'))
+                A = np.load(os.path.join(gl.baseDir, 'post_rehab', f'basis_vectors.{ang}.{gr}.{sn}.npy'))
+                A_diff[a, s] = A - A0
+
+        np.save(os.path.join(gl.baseDir, 'post_rehab', f'basis_vectors.diff.{gr}.npy'), A_diff)

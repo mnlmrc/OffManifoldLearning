@@ -1,4 +1,6 @@
 import argparse
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 import OffManifoldLearning.globals as gl
 import numpy as np
 import pandas as pd
@@ -175,65 +177,74 @@ def make_dataset_postrehab():
     tinfo['cond_vec'] = cond_vec
     pd.DataFrame(tinfo).to_csv(f'{save_dir}/tinfo.tsv', sep='\t', index=False)
 
-# def main(args):
-#
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--post_rehab', action='store_true')
-#     args = parser.parse_args(args)
-#
-#     post_rehab = args.post_rehab
-#
-#     rng = np.random.default_rng(seed=0)
-#     dataset = ['stroke', 'intact']
-#     tinfo = {'finger': [], 'dirX': [], 'dirY': [], 'dirZ': [], 'group': [], 'w_f': [], 'w_b': [], 'subj_id': [],
-#              'mapping': [] if post_rehab else None}
-#     save_dir = '../data/'
-#     os.makedirs(save_dir, exist_ok=True)
-#     N = 20
-#     angle = [0, 20, 40, 60, 80]
-#     enslavement = np.array([.1, .1, .1, .4, .4])
-#     for ds in dataset:
-#         for sn in range(N):
-#             for ang in angle:
-#                 print(f'doing dataset {ds},{sn + 1}/{N}')
-#                 B = make_recruitment(Nf=5, Nd=3, d=5)
-#                 C = make_enslavement(enslavement)
-#                 if post_rehab:
-#                     A = np.load(f'data/post_rehab/basis_vectors.{ang}.{ds}.{sn + 100}.npy')
-#                     F, finger, direction = make_finger_force(A_on, B, C)
-#                     np.save(f'{save_dir}/single_finger.post_rehab.on-manifold.{ds}.{sn + 100}.npy', F_on)
-#                     np.save(f'{save_dir}/single_finger.post_rehab.off-manifold.{ds}.{sn + 100}.npy', F_off)
-#                     w_b, w_f = None, None
-#                 else:
-#                     if ds == 'intact':
-#                         w_f = rng.uniform(.6, 1.)
-#                         w_b = rng.uniform(.05, .35)
-#                     elif ds == 'stroke':
-#                         w_f = rng.uniform(.0, .3)
-#                         w_b = rng.uniform(.6, .9)
-#                     else:
-#                         w_b, w_f = None, None
-#                     A = make_basis_vectors(Nf=5, Nd=3, d=5, w_f=w_f, w_b=w_b)
-#                     F, finger, direction = make_finger_force(A, B, C)
-#                     np.save(f'{save_dir}/basis_vectors/basis_vectors.{ds}.{sn + 100}.npy', A)
-#                     np.save(f'{save_dir}/baseline/single_finger.pretraining.{ds}.{sn + 100}.npy', F)
-#                 tinfo['finger'].extend(finger)
-#                 tinfo['dirX'].extend(direction[:, 0])
-#                 tinfo['dirY'].extend(direction[:, 1])
-#                 tinfo['dirZ'].extend(direction[:, 2])
-#                 tinfo['w_f'].extend([w_f] * finger.size)
-#                 tinfo['w_b'].extend([w_b] * finger.size)
-#                 tinfo['subj_id'].extend([sn+100] * finger.size)
-#                 tinfo['group'].extend([ds] * finger.size)
-#                 if post_rehab:
-#                     tinfo['mapping'].extend(['on'] * (finger.size // 2))
-#                     tinfo['mapping'].extend(['off'] * (finger.size // 2))
-#         tinfo = pd.DataFrame(tinfo)
-#         cond_vec = (np.char.mod('%d', tinfo['dirX'].to_numpy()) + ',' +
-#                     np.char.mod('%d', tinfo['dirY'].to_numpy()) + ',' +
-#                     np.char.mod('%d', tinfo['dirZ'].to_numpy()))
-#         tinfo['cond_vec'] = cond_vec
-#         if post_rehab:
-#             pd.DataFrame(tinfo).to_csv(f'{save_dir}/post_rehab/tinfo.tsv', sep='\t', index=False)
-#         else:
-#             pd.DataFrame(tinfo).to_csv(f'{save_dir}/baseline/tinfo.tsv', sep='\t',index=False)
+
+def calc_dist(session, angle=[0, 50, 70, 90]):
+    dataset = ['stroke', 'intact']
+    tinfo = pd.read_csv(os.path.join(gl.baseDir, session, 'tinfo.tsv'), sep='\t')
+    N = len(tinfo.subj_id.unique())
+    if session=='baseline':
+        euc = np.zeros((2, N, 5, 6, 6))  # (groups, n_subj, n_finger, dir, dir)
+        cos = np.zeros_like(euc)
+        for d, ds in enumerate(dataset):
+            for f, fi in enumerate(tinfo.finger.unique()):
+                for s, sn in enumerate(tinfo.subj_id.unique()):
+                    tinfo_s = tinfo[(tinfo.subj_id == sn) & (tinfo.group == ds)]
+                    X = np.load(os.path.join(gl.baseDir, session, f'single_finger.pretraining.{ds}.{sn}.npy'))
+                    X_f = X[tinfo_s.finger == f, 50]  # .mean(axis=1)
+                    X_m = X_f.reshape(6, -1, 15).mean(axis=1)
+                    G = X_m @ X_m.T
+                    diag = np.diag(G)
+                    norm = np.sqrt(np.outer(diag, diag))
+                    D2 = diag[:, None] + diag[None, :] - 2 * G
+                    euc[d, s, f] = np.sqrt(D2)
+                    cos[d, s, f] = 1 - G / norm
+    if session=='post_rehab':
+        euc = np.zeros((2, len(angle), N, 5, 6, 6))  # (groups, n_subj, n_finger, dir, dir)
+        cos = np.zeros_like(euc)
+        for a, ang in enumerate(angle):
+            for d, ds in enumerate(dataset):
+                for f, fi in enumerate(tinfo.finger.unique()):
+                    for s, sn in enumerate(tinfo.subj_id.unique()):
+                        tinfo_s = tinfo[(tinfo.subj_id == sn) & (tinfo.group == ds) & (tinfo.angle == ang)]
+                        X = np.load(os.path.join(gl.baseDir, session, f'single_finger.post_rehab.{ang}.{ds}.{sn}.npy'))
+                        X_f = X[tinfo_s.finger == f, 50]  # .mean(axis=1)
+                        X_m = X_f.reshape(6, -1, 15).mean(axis=1)
+                        G = X_m @ X_m.T
+                        diag = np.diag(G)
+                        norm = np.sqrt(np.outer(diag, diag))
+                        D2 = diag[:, None] + diag[None, :] - 2 * G
+                        euc[d, a, s, f] = np.sqrt(D2)
+                        cos[d, a, s, f] = 1 - G / norm
+
+    np.save(os.path.join(gl.baseDir, session, f'cosine.npy'), cos)
+    np.save(os.path.join(gl.baseDir, session, f'euclidean.npy'), euc)
+
+def calc_var_expl(session, angle=[0, 30, 50, 70, 90]):
+    dataset = ['stroke', 'intact']
+    tinfo = pd.read_csv(os.path.join(gl.baseDir, session, 'tinfo.tsv'), sep='\t')
+    N = len(tinfo.subj_id.unique())
+    scaler = StandardScaler()
+    pca = PCA()
+    if session == 'baseline':
+        var_expl = np.zeros((2, N, 15))  # (groups, n_subj, n_channels)
+        for d, ds in enumerate(dataset):
+            for s, sn in enumerate(tinfo.subj_id.unique()):
+                X = np.load(os.path.join(gl.baseDir, 'baseline', f'single_finger.pretraining.{ds}.{sn}.npy'))  # (trials, time, channels)
+                X_r = X.reshape(-1, X.shape[-1])
+                X_norm = scaler.fit_transform(X_r)
+                pca.fit(X_norm)
+                var_expl[d, s] = pca.explained_variance_ratio_
+    if session == 'post_rehab':
+        scaler = StandardScaler()
+        pca = PCA()
+        var_expl = np.zeros((len(angle), N, 15))  # (angles, n_subj, n_channels)
+        for a, ang in enumerate(angle):
+            for s, sn in enumerate(tinfo.subj_id.unique()):
+                X = np.load(os.path.join(gl.baseDir, 'post_rehab',
+                                         f'single_finger.post_rehab.{ang}.stroke.{sn}.npy'))  # (trials, time, channels)
+                X_r = X.reshape(-1, X.shape[-1])
+                X_norm = scaler.fit_transform(X_r)
+                pca.fit(X_norm)
+                var_expl[a, s] = pca.explained_variance_ratio_
+
+    np.save(os.path.join(gl.baseDir, session, 'var_expl.npy'), var_expl)

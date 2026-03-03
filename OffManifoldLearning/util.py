@@ -60,3 +60,7 @@ def calc_jerk(traj, dt):
 
     return np.sum(dddx**2 + dddy**2) * dt
 
+
+
+
+

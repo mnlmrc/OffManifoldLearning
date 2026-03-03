@@ -9,6 +9,18 @@ def main():
 
     if cmd == "training":
         training.training()
+    elif cmd == "distances_baseline":
+        make_dataset.calc_dist('baseline')
+    elif cmd == "distances_post_rehab":
+        make_dataset.calc_dist('post_rehab')
+    elif cmd == "var_expl_baseline":
+        make_dataset.calc_var_expl('baseline')
+    elif cmd == "var_expl_post_rehab":
+        make_dataset.calc_var_expl('post_rehab')
+    elif cmd == "pool_log_training":
+        training.pool_log_training('controller_training')
+    elif cmd == "calc_A_diff":
+        training.calc_A_diff()
     elif cmd == "rehabilitation":
         training.rehabilitation()
     elif cmd == "make_dataset_baseline":
