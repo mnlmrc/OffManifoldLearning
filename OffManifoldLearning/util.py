@@ -1,10 +1,8 @@
 import numpy as np
 
 def calc_intrinsic_manifold(F: np.ndarray, d: int):
-    U, S, Vt = np.linalg.svd(F, full_matrices=False)
+    _, _, Vt = np.linalg.svd(F, full_matrices=False)
     B = Vt[:d].T  # basis vectors for intrinsic-dimensional manifold
-    # Q, _ = np.linalg.qr(B, mode='complete')
-    # B_orth = Q[:, B.shape[1]:]
     return B
 
 
