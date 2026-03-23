@@ -5,7 +5,7 @@ class VelocityDecoder:
     def __init__(self,
                  B: np.ndarray,
                  W: np.ndarray,
-                 angle: float = 0,
+                 angle: float = None,
                  tol: float = 0.1,
                  max_iter: int = 10000
                  ):
@@ -20,7 +20,7 @@ class VelocityDecoder:
         self.tol = tol
         G_wm = self._perm_matrix(perm_wm)
         self.P_wm = W @ G_wm @ B.T
-        self.P_om = self._calc_P_om()
+        self.P_om = self._calc_P_om() if angle is not None else None
 
     def _perm_matrix(self, p):
         """
