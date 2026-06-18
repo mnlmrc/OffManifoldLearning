@@ -1,5 +1,6 @@
 import sys
-from OffManifoldLearning import training, make_dataset
+from OffManifoldLearning import make_dataset
+from depreciated import training
 
 def main():
     if len(sys.argv) < 2:

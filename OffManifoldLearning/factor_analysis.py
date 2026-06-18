@@ -65,7 +65,7 @@ def fa_crossval(F, k_range, n_folds=4, random_state=0):
     return k_values, mean_ll, sem_ll
 
 
-def est_dim_crossval(F, k_range=range(1, 15), n_folds=4, random_state=0, plot=False):
+def est_dim_crossval(F, k_range=range(1, 15), n_folds=4, random_state=0,):
     """
     Full pipeline: cross-validate FA over k, identify the peak
     (estimated intrinsic dimensionality, EID), and optionally plot.
