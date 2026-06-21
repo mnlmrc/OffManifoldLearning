@@ -65,7 +65,7 @@ def fa_crossval(F, k_range, n_folds=4, random_state=0):
     return k_values, mean_ll, sem_ll
 
 
-def est_dim_crossval(F, k_range=range(1, 15), n_folds=4, random_state=0,):
+def est_dim_crossval(F, k_range=range(1, 15), n_folds=4, random_state=0, plot=False):
     """
     Full pipeline: cross-validate FA over k, identify the peak
     (estimated intrinsic dimensionality, EID), and optionally plot.
@@ -81,22 +81,18 @@ def est_dim_crossval(F, k_range=range(1, 15), n_folds=4, random_state=0,):
 
     eid = k_values[np.argmax(mean_ll)]
 
-    # if eid < 2:
-    #     print("Warning: Estimated intrinsic dimensionality is < 2. Setting k=2.")
-    #     eid = 2
-        
-    # if plot:
-    #     fig, ax = plt.subplots(figsize=(5, 4))
-    #     ax.errorbar(k_values, mean_ll, yerr=sem_ll, marker='o', color='k')
-    #     ax.axvline(eid, color='r', linestyle='--',
-    #                 label=f'EID = {eid}')
-    #     ax.set_xlabel('Number of factors (k)')
-    #     ax.set_ylabel('Cross-validated log-likelihood\n(per sample)')
-    #     ax.set_title('Estimating intrinsic dimensionality of\nthe enslaving manifold')
-    #     ax.legend()
-    #     fig.tight_layout()
-    #     fig.savefig('/mnt/user-data/outputs/fa_dimensionality.png', dpi=150)
-    #     plt.close(fig)
+    if plot:
+        fig, ax = plt.subplots(figsize=(5, 4))
+        ax.errorbar(k_values, mean_ll, yerr=sem_ll, marker='o', color='k')
+        ax.axvline(eid, color='r', linestyle='--',
+                    label=f'EID = {eid}')
+        ax.set_xlabel('Number of factors (k)')
+        ax.set_ylabel('Cross-validated log-likelihood\n(per sample)')
+        ax.set_title('Estimating intrinsic dimensionality of\nthe enslaving manifold')
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig('/mnt/user-data/outputs/fa_dimensionality.png', dpi=150)
+        plt.close(fig)
 
     return eid, k_values, mean_ll, sem_ll
 
